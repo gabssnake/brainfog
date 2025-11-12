@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Brainfog</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <details>
+  <summary style="cursor:pointer;">Edit words</summary>
+  <div id="controls">
+    <div>
+      <label>Verbs</label><br>
+      <textarea id="verbs">analyze, refactor, automate, debug, test, monitor, optimize, deploy, review, document, scale, secure, improve, enhance, streamline</textarea>
+    </div>
+    <div>
+      <label>Nouns</label><br>
+      <textarea id="nouns">pipeline, module, commit, build, bug, metric, system, code, test, deployment, feature, service, database, cache, API</textarea>
+    </div>
+    <div>
+      <label>Adjectives</label><br>
+      <textarea id="adjectives">efficient, reliable, scalable, secure, fast, maintainable, robust, flexible, clean, modular, automated, optimized, tested, documented, performant</textarea>
+    </div>
+    <div>
+      <label>Outcomes</label><br>
+      <textarea id="outcomes">efficiency, stability, quality, speed, insight, scalability, security, productivity, reliability, maintainability, performance, accuracy, consistency, clarity, innovation</textarea>
+    </div>
+  </div>
+  <button id="update">Update Words</button>
+</details>
+
+<div id="word-container"></div>
+
+<div id="button-group">
+  <button id="generate">Inspire me!</button>
+</div>
+
+
+<script src="script.js"></script>
+</body>
+</html>
