@@ -360,6 +360,7 @@ function makeDraggable(el) {
 
 // Event listeners
 document.getElementById("update").addEventListener("click", updateWords);
+document.getElementById("restore-defaults").addEventListener("click", restoreDefaults);
 document.getElementById("generate").addEventListener("click", generateIdea);
 
 // Auto-save on textarea changes
@@ -389,6 +390,16 @@ function ensureDefaults() {
   if (!document.getElementById("outcomes").value.trim()) {
     document.getElementById("outcomes").value = DEFAULT_WORDS.outcomes;
   }
+}
+
+// Restore default words
+function restoreDefaults() {
+  document.getElementById("verbs").value = DEFAULT_WORDS.verbs;
+  document.getElementById("nouns").value = DEFAULT_WORDS.nouns;
+  document.getElementById("adjectives").value = DEFAULT_WORDS.adjectives;
+  document.getElementById("outcomes").value = DEFAULT_WORDS.outcomes;
+  saveToStorage();
+  updateWords();
 }
 
 // Initialize
