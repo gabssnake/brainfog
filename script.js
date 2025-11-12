@@ -1,541 +1,519 @@
-let words = {};
-let currentIdea = null; // { verb: string, noun: string, adjective: string, outcome: string }
-const container = document.getElementById("word-container");
-
-// Constants
-const CENTER_PERCENT_MIN = 40; // Increased from 30 - push center words further from edges
-const CENTER_PERCENT_MAX = 60; // Decreased from 70 - make center area smaller/more airy
-const EDGE_PERCENT = 20; // Decreased from 25 - push edge words further out
-const ROTATION_RANGE = 8; // -4 to +4 degrees
-const CENTER_WORD_RATIO = 0.25; // Decreased from 0.35 - fewer words in center
-const MIN_CENTER_WORDS = 2; // Decreased from 3 - fewer words in center
-const HIGHLIGHT_POSITIONS = [35, 47, 53, 65]; // verb, adjective, noun, outcome - middle two closer together
-const HIGHLIGHT_VERTICAL_RANGE = 4; // -2% to +2% - moderate vertical grouping
-const HIGHLIGHT_ROTATION_RANGE = 8; // -4 to +4 degrees
-const REPULSION_DISTANCE = 15; // Minimum distance in percentage from highlighted words
-const REPULSION_STRENGTH = 1.5; // How strongly words are pushed away
-const MIN_HIGHLIGHT_SPACING = 3; // Minimum spacing in percentage between highlighted words to prevent overlap
-
-// Load from localStorage
-function loadFromStorage() {
-  const saved = localStorage.getItem("brainfogWords");
-  if (saved) {
-    try {
-      const data = JSON.parse(saved);
-      // Only use saved values if they have content, otherwise keep defaults
-      if (data.verbs && data.verbs.trim()) {
-        document.getElementById("verbs").value = data.verbs;
-      }
-      if (data.nouns && data.nouns.trim()) {
-        document.getElementById("nouns").value = data.nouns;
-      }
-      if (data.adjectives && data.adjectives.trim()) {
-        document.getElementById("adjectives").value = data.adjectives;
-      }
-      if (data.outcomes && data.outcomes.trim()) {
-        document.getElementById("outcomes").value = data.outcomes;
-      }
-    } catch (e) {
-      // If corrupted, ignore and use defaults
-      console.warn("Failed to load saved words:", e);
-    }
-  }
-}
-
-// Save to localStorage
-function saveToStorage() {
-  try {
-    localStorage.setItem("brainfogWords", JSON.stringify({
-      verbs: document.getElementById("verbs").value,
-      nouns: document.getElementById("nouns").value,
-      adjectives: document.getElementById("adjectives").value,
-      outcomes: document.getElementById("outcomes").value
-    }));
-  } catch (e) {
-    console.warn("Failed to save words:", e);
-  }
-}
-
-function randomPos(center = false) {
-  let leftPercent, topPercent;
-  
-  if (center) {
-    leftPercent = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN);
-    topPercent = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN);
-  } else {
-    const edge = Math.random();
-    if (edge < 0.25) {
-      leftPercent = Math.random() * 100;
-      topPercent = Math.random() * EDGE_PERCENT;
-    } else if (edge < 0.5) {
-      leftPercent = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT;
-      topPercent = Math.random() * 100;
-    } else if (edge < 0.75) {
-      leftPercent = Math.random() * 100;
-      topPercent = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT;
-    } else {
-      leftPercent = Math.random() * EDGE_PERCENT;
-      topPercent = Math.random() * 100;
-    }
-  }
-  
-  return { 
-    leftPercent, 
-    topPercent,
-    rotation: (Math.random() - 0.5) * ROTATION_RANGE
-  };
-}
-
-function calculateScaleFromPosition(leftPercent, topPercent) {
-  // Distance from center (0% = center, 50% = corner)
-  const centerX = 50;
-  const centerY = 50;
-  const distanceX = Math.abs(leftPercent - centerX);
-  const distanceY = Math.abs(topPercent - centerY);
-  const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
-  
-  // Normalize to 0-1 (0 = center, ~70.7 = corner)
-  const maxDistance = Math.sqrt(50 ** 2 + 50 ** 2); // ~70.7
-  const normalizedDistance = distance / maxDistance; // 0 to 1
-  
-  // Map to scale: 2.6 at center (much bigger, roughly double), 0.6 at edges (bigger minimum)
-  const scale = 2.6 - (normalizedDistance * 2.0); // 2.6 to 0.6
-  
-  return scale;
-}
-
-function applyTransform(el, leftPercent, topPercent, rotation, scale) {
-  // Use viewport dimensions for accurate positioning across all screen sizes
-  const viewportWidth = window.innerWidth;
-  const viewportHeight = window.innerHeight;
-  
-  // Convert percentage to pixels relative to viewport center
-  const x = (viewportWidth * leftPercent / 100) - (viewportWidth / 2);
-  const y = (viewportHeight * topPercent / 100) - (viewportHeight / 2);
-  
-  // Single transform combining all operations
-  el.style.transform = `translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${scale})`;
-  
-  // Store position percentages for resize handling
-  el.dataset.leftPercent = leftPercent;
-  el.dataset.topPercent = topPercent;
-  el.dataset.rotation = rotation;
-}
-
-function clearContainer() {
-  while (container.firstChild) container.removeChild(container.firstChild);
-}
-
-function selectCenterWords() {
-  const centerWords = {
-    verb: [],
-    noun: [],
-    adjective: [],
-    outcome: []
-  };
-  
-  Object.entries(words).forEach(([type, list]) => {
-    const shuffled = [...list].sort(() => Math.random() - 0.5);
-    const centerCount = Math.max(MIN_CENTER_WORDS, Math.floor(list.length * CENTER_WORD_RATIO));
-    centerWords[type] = shuffled.slice(0, centerCount);
-  });
-  
-  return centerWords;
-}
-
-function renderWords() {
-  clearContainer();
-  const centerWords = selectCenterWords();
-  
-  Object.entries(words).forEach(([type, list]) => {
-    list.forEach(w => {
-      const el = document.createElement("span");
-      el.textContent = w.trim();
-      el.className = type;
-      el.dataset.wordType = type;
-      el.dataset.word = w.trim();
-      
-      const isCenter = centerWords[type].includes(w.trim());
-      const pos = randomPos(isCenter);
-      const scale = calculateScaleFromPosition(pos.leftPercent, pos.topPercent);
-      
-      applyTransform(el, pos.leftPercent, pos.topPercent, pos.rotation, scale);
-      makeDraggable(el);
-      container.appendChild(el);
-    });
-  });
-}
-
-function adjustHighlightedPositions(highlightedPositions) {
-  // Adjust highlighted word positions to prevent overlap while keeping them close
-  const adjusted = [...highlightedPositions];
-  const maxIterations = 10;
-  
-  for (let iteration = 0; iteration < maxIterations; iteration++) {
-    let hasOverlap = false;
+const WordData = {
+  CATEGORIES: {
+    DOM_IDS: ["verbs", "nouns", "adjectives", "outcomes"],
+    OBJECT_KEYS: ["verb", "noun", "adjective", "outcome"],
+    HIGHLIGHT_ORDER: ["verb", "adjective", "noun", "outcome"],
     
-    for (let i = 0; i < adjusted.length; i++) {
-      for (let j = i + 1; j < adjusted.length; j++) {
-        const dx = adjusted[i].leftPercent - adjusted[j].leftPercent;
-        const dy = adjusted[i].topPercent - adjusted[j].topPercent;
-        const distance = Math.sqrt(dx ** 2 + dy ** 2);
-        
-        if (distance < MIN_HIGHLIGHT_SPACING) {
-          hasOverlap = true;
-          // Push words apart along the line connecting them
-          const pushDistance = (MIN_HIGHLIGHT_SPACING - distance) / 2;
-          const angle = Math.atan2(dy, dx);
+    get DOM_IDS() {
+      return WordData.CATEGORIES.OBJECT_KEYS.map(key => key + 's');
+    }
+  },
+
+  SELECTORS: {
+    CATEGORY_INPUTS: (id) => document.getElementById(id)
+  },
+
+  DEFAULT_WORDS: {
+    verbs: "analyze, refactor, automate, debug, test, monitor, optimize, deploy, review, document, scale, secure, improve, enhance, streamline",
+    nouns: "pipeline, module, commit, build, bug, metric, system, code, test, deployment, feature, service, database, cache, API",
+    adjectives: "efficient, reliable, scalable, secure, fast, maintainable, robust, flexible, clean, modular, automated, optimized, tested, documented, performant",
+    outcomes: "efficiency, stability, quality, speed, insight, scalability, security, productivity, reliability, maintainability, performance, accuracy, consistency, clarity, innovation"
+  },
+
+  parse(text) {
+    return text.split(/[,\n]+/).filter(Boolean);
+  },
+
+  ensureDefaults() {
+    WordData.CATEGORIES.DOM_IDS.forEach(cat => {
+      const el = WordData.SELECTORS.CATEGORY_INPUTS(cat);
+      if (!el.value.trim()) {
+        el.value = WordData.DEFAULT_WORDS[cat];
+      }
+    });
+  },
+
+  restoreDefaults() {
+    WordData.CATEGORIES.DOM_IDS.forEach(cat => {
+      WordData.SELECTORS.CATEGORY_INPUTS(cat).value = WordData.DEFAULT_WORDS[cat];
+    });
+    Storage.save();
+  }
+};
+
+const Layout = {
+  CENTER_PERCENT_MIN: 40,
+  CENTER_PERCENT_MAX: 60,
+  EDGE_PERCENT: 20,
+  ROTATION_RANGE: 8,
+  SCALE_CENTER: 2.6,
+  SCALE_EDGE: 0.6,
+
+  randomPos(center = false) {
+    let leftPercent, topPercent;
+    
+    if (center) {
+      leftPercent = Layout.CENTER_PERCENT_MIN + Math.random() * (Layout.CENTER_PERCENT_MAX - Layout.CENTER_PERCENT_MIN);
+      topPercent = Layout.CENTER_PERCENT_MIN + Math.random() * (Layout.CENTER_PERCENT_MAX - Layout.CENTER_PERCENT_MIN);
+    } else {
+      const edge = Math.random();
+      if (edge < 0.25) {
+        leftPercent = Math.random() * 100;
+        topPercent = Math.random() * Layout.EDGE_PERCENT;
+      } else if (edge < 0.5) {
+        leftPercent = (100 - Layout.EDGE_PERCENT) + Math.random() * Layout.EDGE_PERCENT;
+        topPercent = Math.random() * 100;
+      } else if (edge < 0.75) {
+        leftPercent = Math.random() * 100;
+        topPercent = (100 - Layout.EDGE_PERCENT) + Math.random() * Layout.EDGE_PERCENT;
+      } else {
+        leftPercent = Math.random() * Layout.EDGE_PERCENT;
+        topPercent = Math.random() * 100;
+      }
+    }
+    
+    return { 
+      leftPercent, 
+      topPercent,
+      rotation: (Math.random() - 0.5) * Layout.ROTATION_RANGE
+    };
+  },
+
+  calculateScaleFromPosition(leftPercent, topPercent) {
+    const centerX = 50;
+    const centerY = 50;
+    const distanceX = Math.abs(leftPercent - centerX);
+    const distanceY = Math.abs(topPercent - centerY);
+    const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+    
+    const maxDistance = Math.sqrt(50 ** 2 + 50 ** 2);
+    const normalizedDistance = distance / maxDistance;
+    
+    return Layout.SCALE_CENTER - (normalizedDistance * (Layout.SCALE_CENTER - Layout.SCALE_EDGE));
+  },
+
+  applyTransform(el, leftPercent, topPercent, rotation, scale) {
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    
+    const x = (viewportWidth * leftPercent / 100) - (viewportWidth / 2);
+    const y = (viewportHeight * topPercent / 100) - (viewportHeight / 2);
+    
+    el.style.transform = `translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${scale})`;
+    
+    el.dataset.leftPercent = leftPercent;
+    el.dataset.topPercent = topPercent;
+    el.dataset.rotation = rotation;
+  }
+};
+
+const Renderer = {
+  SELECTORS: {
+    CONTAINER: "#word-container",
+    WORD_SPANS: "#word-container span"
+  },
+  CENTER_WORD_RATIO: 0.25,
+  MIN_CENTER_WORDS: 2,
+  HIGHLIGHT_POSITIONS: [35, 47, 53, 65],
+  HIGHLIGHT_VERTICAL_RANGE: 4,
+  HIGHLIGHT_ROTATION_RANGE: 8,
+  MIN_HIGHLIGHT_SPACING: 3,
+  REPULSION_DISTANCE: 15,
+  REPULSION_STRENGTH: 1.5,
+  
+  get container() {
+    return document.querySelector(Renderer.SELECTORS.CONTAINER);
+  },
+
+  clearContainer() {
+    while (Renderer.container.firstChild) Renderer.container.removeChild(Renderer.container.firstChild);
+  },
+
+  selectCenterWords(words) {
+    const centerWords = {};
+    WordData.CATEGORIES.OBJECT_KEYS.forEach(key => {
+      centerWords[key] = [];
+    });
+    
+    Object.entries(words).forEach(([type, list]) => {
+      const shuffled = [...list].sort(() => Math.random() - 0.5);
+      const centerCount = Math.max(Renderer.MIN_CENTER_WORDS, Math.floor(list.length * Renderer.CENTER_WORD_RATIO));
+      centerWords[type] = shuffled.slice(0, centerCount);
+    });
+    
+    return centerWords;
+  },
+
+  adjustHighlightedPositions(highlightedPositions) {
+    const adjusted = [...highlightedPositions];
+    const maxIterations = 10;
+    
+    for (let iteration = 0; iteration < maxIterations; iteration++) {
+      let hasOverlap = false;
+      
+      for (let i = 0; i < adjusted.length; i++) {
+        for (let j = i + 1; j < adjusted.length; j++) {
+          const dx = adjusted[i].leftPercent - adjusted[j].leftPercent;
+          const dy = adjusted[i].topPercent - adjusted[j].topPercent;
+          const distance = Math.sqrt(dx ** 2 + dy ** 2);
           
-          adjusted[i].leftPercent += Math.cos(angle) * pushDistance;
-          adjusted[i].topPercent += Math.sin(angle) * pushDistance;
-          adjusted[j].leftPercent -= Math.cos(angle) * pushDistance;
-          adjusted[j].topPercent -= Math.sin(angle) * pushDistance;
-          
-          // Clamp to reasonable bounds (keep them in center area)
-          adjusted[i].leftPercent = Math.max(30, Math.min(70, adjusted[i].leftPercent));
-          adjusted[i].topPercent = Math.max(40, Math.min(60, adjusted[i].topPercent));
-          adjusted[j].leftPercent = Math.max(30, Math.min(70, adjusted[j].leftPercent));
-          adjusted[j].topPercent = Math.max(40, Math.min(60, adjusted[j].topPercent));
+          if (distance < Renderer.MIN_HIGHLIGHT_SPACING) {
+            hasOverlap = true;
+            const pushDistance = (Renderer.MIN_HIGHLIGHT_SPACING - distance) / 2;
+            const angle = Math.atan2(dy, dx);
+            
+            adjusted[i].leftPercent += Math.cos(angle) * pushDistance;
+            adjusted[i].topPercent += Math.sin(angle) * pushDistance;
+            adjusted[j].leftPercent -= Math.cos(angle) * pushDistance;
+            adjusted[j].topPercent -= Math.sin(angle) * pushDistance;
+            
+            adjusted[i].leftPercent = Math.max(30, Math.min(70, adjusted[i].leftPercent));
+            adjusted[i].topPercent = Math.max(40, Math.min(60, adjusted[i].topPercent));
+            adjusted[j].leftPercent = Math.max(30, Math.min(70, adjusted[j].leftPercent));
+            adjusted[j].topPercent = Math.max(40, Math.min(60, adjusted[j].topPercent));
+          }
         }
       }
-    }
-    
-    if (!hasOverlap) break;
-  }
-  
-  return adjusted;
-}
-
-function applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted = false) {
-  if (!highlightedPositions || highlightedPositions.length === 0 || isHighlighted) {
-    // Highlighted words don't repel each other or get repelled
-    return { leftPercent, topPercent };
-  }
-  
-  let adjustedX = leftPercent;
-  let adjustedY = topPercent;
-  
-  // Check distance to each highlighted word and push away if too close
-  // Only non-highlighted words get repelled
-  highlightedPositions.forEach(highlighted => {
-    const dx = leftPercent - highlighted.leftPercent;
-    const dy = topPercent - highlighted.topPercent;
-    const distance = Math.sqrt(dx ** 2 + dy ** 2);
-    
-    if (distance < REPULSION_DISTANCE && distance > 0) {
-      // Too close - push away
-      const pushDistance = (REPULSION_DISTANCE - distance) * REPULSION_STRENGTH;
-      const angle = Math.atan2(dy, dx);
-      adjustedX += Math.cos(angle) * pushDistance;
-      adjustedY += Math.sin(angle) * pushDistance;
-    }
-  });
-  
-  // Clamp to viewport bounds
-  adjustedX = Math.max(0, Math.min(100, adjustedX));
-  adjustedY = Math.max(0, Math.min(100, adjustedY));
-  
-  return { leftPercent: adjustedX, topPercent: adjustedY };
-}
-
-function shuffleWords(highlightWords = null) {
-  const centerWords = highlightWords ? null : selectCenterWords();
-  
-  // First, position all words and collect highlighted positions
-  let highlightedPositions = [];
-  const allWords = [];
-  
-  document.querySelectorAll("#word-container span").forEach(el => {
-    const wordType = el.dataset.wordType;
-    const word = el.dataset.word;
-    const isHighlighted = highlightWords?.[wordType] === word;
-    
-    let leftPercent, topPercent, rotation;
-    
-    if (isHighlighted) {
-      // Highlighted words: use predefined center positions
-      const order = ['verb', 'adjective', 'noun', 'outcome'];
-      const index = order.indexOf(wordType);
-      leftPercent = HIGHLIGHT_POSITIONS[index] || 50;
-      topPercent = 50 + (Math.random() - 0.5) * HIGHLIGHT_VERTICAL_RANGE;
-      rotation = (Math.random() - 0.5) * HIGHLIGHT_ROTATION_RANGE;
       
-      highlightedPositions.push({ leftPercent, topPercent, wordType, index });
-    } else {
-      // Regular words: random position
-      const isCenter = centerWords?.[wordType]?.includes(word);
-      const pos = randomPos(isCenter);
-      leftPercent = pos.leftPercent;
-      topPercent = pos.topPercent;
-      rotation = pos.rotation;
+      if (!hasOverlap) break;
     }
     
-    allWords.push({ el, leftPercent, topPercent, rotation, isHighlighted, wordType });
-  });
-  
-  // Adjust highlighted positions to prevent overlap while keeping them close
-  if (highlightedPositions.length > 0) {
-    highlightedPositions = adjustHighlightedPositions(highlightedPositions);
-  }
-  
-  // Apply repulsion to non-highlighted words and render all
-  // Highlighted words use adjusted positions (close but not overlapping)
-  allWords.forEach(({ el, leftPercent, topPercent, rotation, isHighlighted, wordType }) => {
-    let finalLeft = leftPercent;
-    let finalTop = topPercent;
+    return adjusted;
+  },
+
+  applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted = false) {
+    if (!highlightedPositions?.length || isHighlighted) {
+      return { leftPercent, topPercent };
+    }
     
-    if (isHighlighted) {
-      // Use adjusted position from overlap prevention
-      const adjusted = highlightedPositions.find(h => h.wordType === wordType);
-      if (adjusted) {
-        finalLeft = adjusted.leftPercent;
-        finalTop = adjusted.topPercent;
+    let adjustedX = leftPercent;
+    let adjustedY = topPercent;
+    
+    highlightedPositions.forEach(highlighted => {
+      const dx = leftPercent - highlighted.leftPercent;
+      const dy = topPercent - highlighted.topPercent;
+      const distance = Math.sqrt(dx ** 2 + dy ** 2);
+      
+      if (distance < Renderer.REPULSION_DISTANCE && distance > 0) {
+        const pushDistance = (Renderer.REPULSION_DISTANCE - distance) * Renderer.REPULSION_STRENGTH;
+        const angle = Math.atan2(dy, dx);
+        adjustedX += Math.cos(angle) * pushDistance;
+        adjustedY += Math.sin(angle) * pushDistance;
       }
-    } else {
-      // Apply repulsion to non-highlighted words
-      if (highlightedPositions.length > 0) {
-        const repelled = applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted);
+    });
+    
+    return {
+      leftPercent: Math.max(0, Math.min(100, adjustedX)),
+      topPercent: Math.max(0, Math.min(100, adjustedY))
+    };
+  },
+
+  collectWordPositions(highlightWords, centerWords) {
+    const highlightedPositions = [];
+    const allWords = [];
+    
+    document.querySelectorAll(Renderer.SELECTORS.WORD_SPANS).forEach(el => {
+      const wordType = el.dataset.wordType;
+      const word = el.dataset.word;
+      const isHighlighted = highlightWords?.[wordType] === word;
+      
+      let leftPercent, topPercent, rotation;
+      
+      if (isHighlighted) {
+        const index = WordData.CATEGORIES.HIGHLIGHT_ORDER.indexOf(wordType);
+        leftPercent = Renderer.HIGHLIGHT_POSITIONS[index] || 50;
+        topPercent = 50 + (Math.random() - 0.5) * Renderer.HIGHLIGHT_VERTICAL_RANGE;
+        rotation = (Math.random() - 0.5) * Renderer.HIGHLIGHT_ROTATION_RANGE;
+        highlightedPositions.push({ leftPercent, topPercent, wordType, index });
+      } else {
+        const isCenter = centerWords?.[wordType]?.includes(word);
+        const pos = Layout.randomPos(isCenter);
+        leftPercent = pos.leftPercent;
+        topPercent = pos.topPercent;
+        rotation = pos.rotation;
+      }
+      
+      allWords.push({ el, leftPercent, topPercent, rotation, isHighlighted, wordType });
+    });
+    
+    return { highlightedPositions, allWords };
+  },
+
+  applyFinalPositions(allWords, highlightedPositions) {
+    allWords.forEach(({ el, leftPercent, topPercent, rotation, isHighlighted, wordType }) => {
+      let finalLeft = leftPercent;
+      let finalTop = topPercent;
+      
+      if (isHighlighted) {
+        const adjusted = highlightedPositions.find(h => h.wordType === wordType);
+        if (adjusted) {
+          finalLeft = adjusted.leftPercent;
+          finalTop = adjusted.topPercent;
+        }
+      } else if (highlightedPositions.length > 0) {
+        const repelled = Renderer.applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted);
         finalLeft = repelled.leftPercent;
         finalTop = repelled.topPercent;
       }
-    }
+      
+      const scale = Layout.calculateScaleFromPosition(finalLeft, finalTop);
+      Layout.applyTransform(el, finalLeft, finalTop, rotation, scale);
+    });
+  },
+
+  renderWords(words) {
+    Renderer.clearContainer();
+    const centerWords = Renderer.selectCenterWords(words);
     
-    const scale = calculateScaleFromPosition(finalLeft, finalTop);
-    applyTransform(el, finalLeft, finalTop, rotation, scale);
-  });
-}
+    Object.entries(words).forEach(([type, list]) => {
+      list.forEach(w => {
+        const el = document.createElement("span");
+        el.textContent = w.trim();
+        el.className = type;
+        el.dataset.wordType = type;
+        el.dataset.word = w.trim();
+        
+        const isCenter = centerWords[type].includes(w.trim());
+        const pos = Layout.randomPos(isCenter);
+        const scale = Layout.calculateScaleFromPosition(pos.leftPercent, pos.topPercent);
+        
+        Layout.applyTransform(el, pos.leftPercent, pos.topPercent, pos.rotation, scale);
+        Interaction.makeDraggable(el);
+        Renderer.container.appendChild(el);
+      });
+    });
+  },
 
-function generateIdea() {
-  const verbs = words.verb || [];
-  const nouns = words.noun || [];
-  const adjectives = words.adjective || [];
-  const outcomes = words.outcome || [];
-  
-  if (verbs.length === 0 || nouns.length === 0 || adjectives.length === 0 || outcomes.length === 0) {
-    alert("Add words in each category first!");
-    return;
+  shuffleWords(words, highlightWords = null) {
+    const centerWords = highlightWords ? null : Renderer.selectCenterWords(words);
+    const { highlightedPositions, allWords } = Renderer.collectWordPositions(highlightWords, centerWords);
+    const adjustedPositions = highlightedPositions.length > 0
+      ? Renderer.adjustHighlightedPositions(highlightedPositions)
+      : highlightedPositions;
+    
+    Renderer.applyFinalPositions(allWords, adjustedPositions);
   }
-  
-  const verb = verbs[Math.floor(Math.random() * verbs.length)].trim();
-  const noun = nouns[Math.floor(Math.random() * nouns.length)].trim();
-  const adjective = adjectives[Math.floor(Math.random() * adjectives.length)].trim();
-  const outcome = outcomes[Math.floor(Math.random() * outcomes.length)].trim();
-  
-  // Store current idea
-  currentIdea = { verb, noun, adjective, outcome };
-  
-  // Shuffle all words and highlight the generated ones
-  shuffleWords(currentIdea);
-  saveToStorage();
-  
-  // Trigger confetti from button
-  triggerConfetti(false);
-}
+};
 
-function updateWords() {
-  words = {
-    verb: document.getElementById("verbs").value.split(/[,\n]+/).filter(Boolean),
-    noun: document.getElementById("nouns").value.split(/[,\n]+/).filter(Boolean),
-    adjective: document.getElementById("adjectives").value.split(/[,\n]+/).filter(Boolean),
-    outcome: document.getElementById("outcomes").value.split(/[,\n]+/).filter(Boolean)
-  };
-  renderWords();
-  saveToStorage();
-}
+const Interaction = {
+  makeDraggable(el) {
+    let offsetX = 0, offsetY = 0, dragging = false;
+    let initialRotation = 0;
+    let initialLeftPercent = 50;
+    let initialTopPercent = 50;
 
-function triggerConfetti(centerOfScreen = false) {
-  let centerX, centerY;
-  
-  if (centerOfScreen) {
-    // Use center of the screen/viewport
-    centerX = window.innerWidth / 2;
-    centerY = window.innerHeight / 2;
-  } else {
-    // Get center point of the button area
-    const buttonGroup = document.getElementById("button-group");
-    const rect = buttonGroup.getBoundingClientRect();
-    centerX = rect.left + rect.width / 2;
-    centerY = rect.top + rect.height / 2;
+    el.addEventListener("pointerdown", e => {
+      dragging = true;
+      el.classList.add("dragging");
+      
+      initialLeftPercent = parseFloat(el.dataset.leftPercent) || 50;
+      initialTopPercent = parseFloat(el.dataset.topPercent) || 50;
+      initialRotation = parseFloat(el.dataset.rotation) || 0;
+      
+      const initialScale = Layout.calculateScaleFromPosition(initialLeftPercent, initialTopPercent);
+      Layout.applyTransform(el, initialLeftPercent, initialTopPercent, initialRotation, initialScale);
+      
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const elementCenterX = (viewportWidth * initialLeftPercent / 100);
+      const elementCenterY = (viewportHeight * initialTopPercent / 100);
+      
+      offsetX = e.clientX - elementCenterX;
+      offsetY = e.clientY - elementCenterY;
+      
+      el.setPointerCapture(e.pointerId);
+    });
+
+    el.addEventListener("pointermove", e => {
+      if (!dragging) return;
+      
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const elementCenterX = e.clientX - offsetX;
+      const elementCenterY = e.clientY - offsetY;
+      
+      const leftPercent = Math.max(0, Math.min(100, (elementCenterX / viewportWidth) * 100));
+      const topPercent = Math.max(0, Math.min(100, (elementCenterY / viewportHeight) * 100));
+      
+      const scale = Layout.calculateScaleFromPosition(leftPercent, topPercent);
+      Layout.applyTransform(el, leftPercent, topPercent, initialRotation, scale);
+    });
+
+    el.addEventListener("pointerup", e => {
+      dragging = false;
+      el.classList.remove("dragging");
+      el.releasePointerCapture(e.pointerId);
+    });
   }
-  
-  // Vibrant color palette
-  const colors = [
+};
+
+const Effects = {
+  SELECTORS: {
+    BUTTON_GROUP: "#button-group"
+  },
+  COLORS: [
     '#FF6B6B', '#4ECDC4', '#45B7D1', '#FFA07A', '#98D8C8',
     '#F7DC6F', '#BB8FCE', '#85C1E2', '#F8B739', '#EA5455',
     '#2ECC71', '#3498DB', '#9B59B6', '#E74C3C', '#F39C12'
-  ];
-  
-  // More particles for center screen burst
-  const particleCount = centerOfScreen ? 80 : 50;
-  
-  for (let i = 0; i < particleCount; i++) {
-    const c = document.createElement("div");
-    c.className = "confetti";
+  ],
+
+  triggerConfetti(centerOfScreen = false) {
+    let centerX, centerY;
     
-    // Random angle for explosion (0 to 360 degrees)
-    const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
-    // Random distance - larger for center screen burst
-    const distance = centerOfScreen ? (150 + Math.random() * 250) : (100 + Math.random() * 200);
+    if (centerOfScreen) {
+      centerX = window.innerWidth / 2;
+      centerY = window.innerHeight / 2;
+    } else {
+      const buttonGroup = document.querySelector(Effects.SELECTORS.BUTTON_GROUP);
+      const rect = buttonGroup.getBoundingClientRect();
+      centerX = rect.left + rect.width / 2;
+      centerY = rect.top + rect.height / 2;
+    }
     
-    // Calculate end position
-    const tx = Math.cos(angle) * distance;
-    const ty = Math.sin(angle) * distance;
-    const rotation = Math.random() * 720 - 360; // -360 to 360 degrees
+    const particleCount = centerOfScreen ? 80 : 50;
     
-    // Set initial position
-    c.style.left = centerX + "px";
-    c.style.top = centerY + "px";
-    
-    // Random color from palette
-    c.style.background = colors[Math.floor(Math.random() * colors.length)];
-    
-    // Random size variation - larger for center screen burst
-    const size = centerOfScreen ? (8 + Math.random() * 8) : (6 + Math.random() * 6);
-    c.style.width = size + "px";
-    c.style.height = size + "px";
-    
-    // Calculate animation duration - longer for center screen burst
-    const duration = centerOfScreen ? (1.0 + Math.random() * 0.5) : (0.8 + Math.random() * 0.4);
-    c.style.transition = `transform ${duration}s ease-out, opacity ${duration}s ease-out`;
-    
-    document.body.appendChild(c);
-    
-    // Trigger animation after element is in DOM
-    requestAnimationFrame(() => {
-      c.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg) scale(0.5)`;
-      c.style.opacity = "0";
-    });
-    
-    setTimeout(() => c.remove(), (duration + 0.2) * 1000);
+    for (let i = 0; i < particleCount; i++) {
+      const c = document.createElement("div");
+      c.className = "confetti";
+      
+      const angle = (Math.PI * 2 * i) / particleCount + Math.random() * 0.5;
+      const distance = centerOfScreen ? (150 + Math.random() * 250) : (100 + Math.random() * 200);
+      
+      const tx = Math.cos(angle) * distance;
+      const ty = Math.sin(angle) * distance;
+      const rotation = Math.random() * 720 - 360;
+      
+      c.style.left = centerX + "px";
+      c.style.top = centerY + "px";
+      c.style.background = Effects.COLORS[Math.floor(Math.random() * Effects.COLORS.length)];
+      c.style.width = (centerOfScreen ? (8 + Math.random() * 8) : (6 + Math.random() * 6)) + "px";
+      c.style.height = c.style.width;
+      
+      const duration = centerOfScreen ? (1.0 + Math.random() * 0.5) : (0.8 + Math.random() * 0.4);
+      c.style.transition = `transform ${duration}s ease-out, opacity ${duration}s ease-out`;
+      
+      document.body.appendChild(c);
+      
+      requestAnimationFrame(() => {
+        c.style.transform = `translate(${tx}px, ${ty}px) rotate(${rotation}deg) scale(0.5)`;
+        c.style.opacity = "0";
+      });
+      
+      setTimeout(() => c.remove(), (duration + 0.2) * 1000);
+    }
   }
-}
-
-function makeDraggable(el) {
-  let offsetX = 0, offsetY = 0, dragging = false;
-  let initialRotation = 0;
-  let initialScale = 1;
-  let initialLeftPercent = 50;
-  let initialTopPercent = 50;
-
-  el.addEventListener("pointerdown", e => {
-    dragging = true;
-    el.classList.add("dragging");
-    
-    // Get current position from dataset (stored by applyTransform)
-    initialLeftPercent = parseFloat(el.dataset.leftPercent) || 50;
-    initialTopPercent = parseFloat(el.dataset.topPercent) || 50;
-    initialRotation = parseFloat(el.dataset.rotation) || 0;
-    
-    // Ensure transform is exactly correct before starting drag
-    // This prevents any mismatch between stored position and actual transform
-    initialScale = calculateScaleFromPosition(initialLeftPercent, initialTopPercent);
-    applyTransform(el, initialLeftPercent, initialTopPercent, initialRotation, initialScale);
-    
-    // Calculate element center from stored position (matches applyTransform calculation)
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    const elementCenterX = (viewportWidth * initialLeftPercent / 100);
-    const elementCenterY = (viewportHeight * initialTopPercent / 100);
-    
-    // Calculate offset from mouse to element center
-    offsetX = e.clientX - elementCenterX;
-    offsetY = e.clientY - elementCenterY;
-    
-    el.setPointerCapture(e.pointerId);
-  });
-
-  el.addEventListener("pointermove", e => {
-    if (!dragging) return;
-    
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-    
-    // Calculate new position based on mouse position minus offset
-    // This gives us the element center position
-    const elementCenterX = e.clientX - offsetX;
-    const elementCenterY = e.clientY - offsetY;
-    
-    // Convert to percentage and clamp to viewport bounds
-    const leftPercent = Math.max(0, Math.min(100, (elementCenterX / viewportWidth) * 100));
-    const topPercent = Math.max(0, Math.min(100, (elementCenterY / viewportHeight) * 100));
-    
-    // Recalculate scale based on new position (scale changes as word moves)
-    const scale = calculateScaleFromPosition(leftPercent, topPercent);
-    applyTransform(el, leftPercent, topPercent, initialRotation, scale);
-  });
-
-  el.addEventListener("pointerup", e => {
-    dragging = false;
-    el.classList.remove("dragging");
-    el.releasePointerCapture(e.pointerId);
-  });
-}
-
-// Event listeners
-document.getElementById("update").addEventListener("click", updateWords);
-document.getElementById("restore-defaults").addEventListener("click", restoreDefaults);
-document.getElementById("generate").addEventListener("click", generateIdea);
-
-// Auto-save on textarea changes
-["verbs", "nouns", "adjectives", "outcomes"].forEach(id => {
-  document.getElementById(id).addEventListener("input", saveToStorage);
-});
-
-// Default word lists
-const DEFAULT_WORDS = {
-  verbs: "analyze, refactor, automate, debug, test, monitor, optimize, deploy, review, document, scale, secure, improve, enhance, streamline",
-  nouns: "pipeline, module, commit, build, bug, metric, system, code, test, deployment, feature, service, database, cache, API",
-  adjectives: "efficient, reliable, scalable, secure, fast, maintainable, robust, flexible, clean, modular, automated, optimized, tested, documented, performant",
-  outcomes: "efficiency, stability, quality, speed, insight, scalability, security, productivity, reliability, maintainability, performance, accuracy, consistency, clarity, innovation"
 };
 
-// Ensure defaults are present if fields are empty
-function ensureDefaults() {
-  if (!document.getElementById("verbs").value.trim()) {
-    document.getElementById("verbs").value = DEFAULT_WORDS.verbs;
-  }
-  if (!document.getElementById("nouns").value.trim()) {
-    document.getElementById("nouns").value = DEFAULT_WORDS.nouns;
-  }
-  if (!document.getElementById("adjectives").value.trim()) {
-    document.getElementById("adjectives").value = DEFAULT_WORDS.adjectives;
-  }
-  if (!document.getElementById("outcomes").value.trim()) {
-    document.getElementById("outcomes").value = DEFAULT_WORDS.outcomes;
-  }
-}
+const Storage = {
+  SELECTORS: {
+    CATEGORY_INPUTS: (id) => WordData.SELECTORS.CATEGORY_INPUTS(id)
+  },
+  STORAGE_KEY: "brainfog-words",
 
-// Restore default words
-function restoreDefaults() {
-  document.getElementById("verbs").value = DEFAULT_WORDS.verbs;
-  document.getElementById("nouns").value = DEFAULT_WORDS.nouns;
-  document.getElementById("adjectives").value = DEFAULT_WORDS.adjectives;
-  document.getElementById("outcomes").value = DEFAULT_WORDS.outcomes;
-  saveToStorage();
-  updateWords();
-}
+  load() {
+    const saved = localStorage.getItem(Storage.STORAGE_KEY);
+    if (!saved) return;
+    
+    try {
+      const data = JSON.parse(saved);
+      WordData.CATEGORIES.DOM_IDS.forEach(cat => {
+        if (data[cat]?.trim()) {
+          Storage.SELECTORS.CATEGORY_INPUTS(cat).value = data[cat];
+        }
+      });
+    } catch (e) {
+      console.warn("Failed to load saved words:", e);
+    }
+  },
 
-// Handle window resize - recalculate all transforms
-let resizeTimeout;
-window.addEventListener('resize', () => {
-  clearTimeout(resizeTimeout);
-  resizeTimeout = setTimeout(() => {
-    document.querySelectorAll("#word-container span").forEach(el => {
-      const leftPercent = parseFloat(el.dataset.leftPercent) || 50;
-      const topPercent = parseFloat(el.dataset.topPercent) || 50;
-      const rotation = parseFloat(el.dataset.rotation) || 0;
-      const scale = calculateScaleFromPosition(leftPercent, topPercent);
-      applyTransform(el, leftPercent, topPercent, rotation, scale);
+  save() {
+    try {
+      const data = {};
+      WordData.CATEGORIES.DOM_IDS.forEach(cat => {
+        data[cat] = Storage.SELECTORS.CATEGORY_INPUTS(cat).value;
+      });
+      localStorage.setItem(Storage.STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      console.warn("Failed to save words:", e);
+    }
+  }
+};
+
+const Brainfog = {
+  SELECTORS: {
+    UPDATE_BUTTON: "#update",
+    RESTORE_DEFAULTS_BUTTON: "#restore-defaults",
+    GENERATE_BUTTON: "#generate"
+  },
+  words: {},
+  currentIdea: null,
+
+  updateWords() {
+    Brainfog.words = {};
+    WordData.CATEGORIES.DOM_IDS.forEach((domId, i) => {
+      const objectKey = WordData.CATEGORIES.OBJECT_KEYS[i];
+      Brainfog.words[objectKey] = WordData.parse(WordData.SELECTORS.CATEGORY_INPUTS(domId).value);
     });
-  }, 100);
-});
+    Renderer.renderWords(Brainfog.words);
+    Storage.save();
+  },
 
-// Initialize
-loadFromStorage();
-ensureDefaults();
-updateWords();
-// Generate initial idea after words are rendered
-setTimeout(() => {
-  generateIdea();
-}, 200);
+  restoreDefaults() {
+    WordData.restoreDefaults();
+    Brainfog.updateWords();
+  },
 
+  generate() {
+    const categories = WordData.CATEGORIES.OBJECT_KEYS;
+    
+    for (const key of categories) {
+      const list = Brainfog.words[key] || [];
+      if (list.length === 0) {
+        alert("Add words in each category first!");
+        return;
+      }
+    }
+    
+    const selected = {};
+    categories.forEach(key => {
+      const list = Brainfog.words[key];
+      selected[key] = list[Math.floor(Math.random() * list.length)].trim();
+    });
+    
+    Brainfog.currentIdea = selected;
+    Renderer.shuffleWords(Brainfog.words, Brainfog.currentIdea);
+    Storage.save();
+    Effects.triggerConfetti(false);
+  },
+
+  init() {
+    document.querySelector(Brainfog.SELECTORS.UPDATE_BUTTON).addEventListener("click", Brainfog.updateWords);
+    document.querySelector(Brainfog.SELECTORS.RESTORE_DEFAULTS_BUTTON).addEventListener("click", Brainfog.restoreDefaults);
+    document.querySelector(Brainfog.SELECTORS.GENERATE_BUTTON).addEventListener("click", Brainfog.generate);
+
+    WordData.CATEGORIES.DOM_IDS.forEach(id => {
+      WordData.SELECTORS.CATEGORY_INPUTS(id).addEventListener("input", Storage.save);
+    });
+
+    let resizeTimeout;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        document.querySelectorAll(Renderer.SELECTORS.WORD_SPANS).forEach(el => {
+          const leftPercent = parseFloat(el.dataset.leftPercent) || 50;
+          const topPercent = parseFloat(el.dataset.topPercent) || 50;
+          const rotation = parseFloat(el.dataset.rotation) || 0;
+          const scale = Layout.calculateScaleFromPosition(leftPercent, topPercent);
+          Layout.applyTransform(el, leftPercent, topPercent, rotation, scale);
+        });
+      }, 100);
+    });
+
+    Storage.load();
+    WordData.ensureDefaults();
+    Brainfog.updateWords();
+    setTimeout(() => Brainfog.generate(), 200);
+  }
+};
+
+Brainfog.init();
