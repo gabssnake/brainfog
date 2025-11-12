@@ -14,10 +14,10 @@ const WordData = {
   },
 
   DEFAULT_WORDS: {
-    verbs: "analyze, refactor, automate, debug, test, monitor, optimize, deploy, review, document, scale, secure, improve, enhance, streamline",
-    nouns: "pipeline, module, commit, build, bug, metric, system, code, test, deployment, feature, service, database, cache, API",
-    adjectives: "efficient, reliable, scalable, secure, fast, maintainable, robust, flexible, clean, modular, automated, optimized, tested, documented, performant",
-    outcomes: "efficiency, stability, quality, speed, insight, scalability, security, productivity, reliability, maintainability, performance, accuracy, consistency, clarity, innovation"
+    verbs: "analyze, detect, enforce, validate, verify, govern, monitor, review, refactor, migrate, transform, cluster, mine, visualize, instrument, fuzz, synthesize, execute, query, trace, measure, quantify, predict, recommend, suggest, propagate, remediate, fix, upgrade, maintain",
+    nouns: "code, rule, dependency, architecture, issue, pattern, violation, debt, migration, coverage, duplication, lineage, intent, spec, contract, configuration, framework, library, API, repository, commit, pull request, test, profile, graph, analysis, execution, transformation, remediation, codebase",
+    adjectives: "maintainable, reliable, scalable, secure, compliant, accurate, performant, deterministic, actionable, context-aware, cross-language, temporal, behavioral, symbolic, abstract, static, dynamic, automated, incremental, consistent, idiomatic, deprecated, breaking, impacted, transitive, declarative, formal, semantic, architectural, governable",
+    outcomes: "quality, compliance, reliability, maintainability, scalability, security, accuracy, insight, governance, remediation, consistency, clarity, understanding, productivity, efficiency, coverage, detection, validation, enforcement, transformation, migration, debt reduction, architecture quality, code ownership, intent preservation, behavioral correctness, dependency management, technical debt visibility, actionable findings"
   },
 
   parse(text) {
