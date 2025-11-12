@@ -78,4 +78,20 @@ button:hover { background: #f0f0f0; }
   z-index: 9999;
   transition: transform 0.8s ease-out, opacity 0.8s ease-out;
 }
+footer {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  z-index: 100;
+  font-size: 0.7em;
+}
+footer a {
+  color: #666;
+  text-decoration: none;
+  opacity: 0.6;
+  transition: opacity 0.2s;
+}
+footer a:hover {
+  opacity: 1;
+}
 

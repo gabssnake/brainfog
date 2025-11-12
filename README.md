@@ -2,6 +2,10 @@
 
 Break through creative blocks by combining random words. Drag colorful labels across your screen. Click "Inspire me!" to generate new combinations. Watch unexpected connections spark fresh ideas.
 
+[![Brainfog Preview](preview.png)](https://gabssnake.github.io/brainfog/)
+
+**[Try it live →](https://gabssnake.github.io/brainfog/)**
+
 ## Perfect for
 
 - Product ideation and feature concepts
