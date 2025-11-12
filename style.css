@@ -33,6 +33,9 @@ span {
   cursor: grab;
   font-size: clamp(0.75rem, 2.5vw, 1rem);
   font-weight: bold;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
   user-select: none;
 }
 span.dragging { cursor: grabbing; transition: none; z-index: 10; }
