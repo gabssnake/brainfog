@@ -9,9 +9,12 @@ const EDGE_PERCENT = 20; // Decreased from 25 - push edge words further out
 const ROTATION_RANGE = 8; // -4 to +4 degrees
 const CENTER_WORD_RATIO = 0.25; // Decreased from 0.35 - fewer words in center
 const MIN_CENTER_WORDS = 2; // Decreased from 3 - fewer words in center
-const HIGHLIGHT_POSITIONS = [25, 40, 60, 75]; // verb, adjective, noun, outcome
-const HIGHLIGHT_VERTICAL_RANGE = 6; // -3% to +3%
+const HIGHLIGHT_POSITIONS = [35, 47, 53, 65]; // verb, adjective, noun, outcome - middle two closer together
+const HIGHLIGHT_VERTICAL_RANGE = 4; // -2% to +2% - moderate vertical grouping
 const HIGHLIGHT_ROTATION_RANGE = 8; // -4 to +4 degrees
+const REPULSION_DISTANCE = 15; // Minimum distance in percentage from highlighted words
+const REPULSION_STRENGTH = 1.5; // How strongly words are pushed away
+const MIN_HIGHLIGHT_SPACING = 3; // Minimum spacing in percentage between highlighted words to prevent overlap
 
 // Load from localStorage
 function loadFromStorage() {
@@ -163,8 +166,84 @@ function renderWords() {
   });
 }
 
+function adjustHighlightedPositions(highlightedPositions) {
+  // Adjust highlighted word positions to prevent overlap while keeping them close
+  const adjusted = [...highlightedPositions];
+  const maxIterations = 10;
+  
+  for (let iteration = 0; iteration < maxIterations; iteration++) {
+    let hasOverlap = false;
+    
+    for (let i = 0; i < adjusted.length; i++) {
+      for (let j = i + 1; j < adjusted.length; j++) {
+        const dx = adjusted[i].leftPercent - adjusted[j].leftPercent;
+        const dy = adjusted[i].topPercent - adjusted[j].topPercent;
+        const distance = Math.sqrt(dx ** 2 + dy ** 2);
+        
+        if (distance < MIN_HIGHLIGHT_SPACING) {
+          hasOverlap = true;
+          // Push words apart along the line connecting them
+          const pushDistance = (MIN_HIGHLIGHT_SPACING - distance) / 2;
+          const angle = Math.atan2(dy, dx);
+          
+          adjusted[i].leftPercent += Math.cos(angle) * pushDistance;
+          adjusted[i].topPercent += Math.sin(angle) * pushDistance;
+          adjusted[j].leftPercent -= Math.cos(angle) * pushDistance;
+          adjusted[j].topPercent -= Math.sin(angle) * pushDistance;
+          
+          // Clamp to reasonable bounds (keep them in center area)
+          adjusted[i].leftPercent = Math.max(30, Math.min(70, adjusted[i].leftPercent));
+          adjusted[i].topPercent = Math.max(40, Math.min(60, adjusted[i].topPercent));
+          adjusted[j].leftPercent = Math.max(30, Math.min(70, adjusted[j].leftPercent));
+          adjusted[j].topPercent = Math.max(40, Math.min(60, adjusted[j].topPercent));
+        }
+      }
+    }
+    
+    if (!hasOverlap) break;
+  }
+  
+  return adjusted;
+}
+
+function applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted = false) {
+  if (!highlightedPositions || highlightedPositions.length === 0 || isHighlighted) {
+    // Highlighted words don't repel each other or get repelled
+    return { leftPercent, topPercent };
+  }
+  
+  let adjustedX = leftPercent;
+  let adjustedY = topPercent;
+  
+  // Check distance to each highlighted word and push away if too close
+  // Only non-highlighted words get repelled
+  highlightedPositions.forEach(highlighted => {
+    const dx = leftPercent - highlighted.leftPercent;
+    const dy = topPercent - highlighted.topPercent;
+    const distance = Math.sqrt(dx ** 2 + dy ** 2);
+    
+    if (distance < REPULSION_DISTANCE && distance > 0) {
+      // Too close - push away
+      const pushDistance = (REPULSION_DISTANCE - distance) * REPULSION_STRENGTH;
+      const angle = Math.atan2(dy, dx);
+      adjustedX += Math.cos(angle) * pushDistance;
+      adjustedY += Math.sin(angle) * pushDistance;
+    }
+  });
+  
+  // Clamp to viewport bounds
+  adjustedX = Math.max(0, Math.min(100, adjustedX));
+  adjustedY = Math.max(0, Math.min(100, adjustedY));
+  
+  return { leftPercent: adjustedX, topPercent: adjustedY };
+}
+
 function shuffleWords(highlightWords = null) {
   const centerWords = highlightWords ? null : selectCenterWords();
+  
+  // First, position all words and collect highlighted positions
+  let highlightedPositions = [];
+  const allWords = [];
   
   document.querySelectorAll("#word-container span").forEach(el => {
     const wordType = el.dataset.wordType;
@@ -180,6 +259,8 @@ function shuffleWords(highlightWords = null) {
       leftPercent = HIGHLIGHT_POSITIONS[index] || 50;
       topPercent = 50 + (Math.random() - 0.5) * HIGHLIGHT_VERTICAL_RANGE;
       rotation = (Math.random() - 0.5) * HIGHLIGHT_ROTATION_RANGE;
+      
+      highlightedPositions.push({ leftPercent, topPercent, wordType, index });
     } else {
       // Regular words: random position
       const isCenter = centerWords?.[wordType]?.includes(word);
@@ -189,8 +270,38 @@ function shuffleWords(highlightWords = null) {
       rotation = pos.rotation;
     }
     
-    const scale = calculateScaleFromPosition(leftPercent, topPercent);
-    applyTransform(el, leftPercent, topPercent, rotation, scale);
+    allWords.push({ el, leftPercent, topPercent, rotation, isHighlighted, wordType });
+  });
+  
+  // Adjust highlighted positions to prevent overlap while keeping them close
+  if (highlightedPositions.length > 0) {
+    highlightedPositions = adjustHighlightedPositions(highlightedPositions);
+  }
+  
+  // Apply repulsion to non-highlighted words and render all
+  // Highlighted words use adjusted positions (close but not overlapping)
+  allWords.forEach(({ el, leftPercent, topPercent, rotation, isHighlighted, wordType }) => {
+    let finalLeft = leftPercent;
+    let finalTop = topPercent;
+    
+    if (isHighlighted) {
+      // Use adjusted position from overlap prevention
+      const adjusted = highlightedPositions.find(h => h.wordType === wordType);
+      if (adjusted) {
+        finalLeft = adjusted.leftPercent;
+        finalTop = adjusted.topPercent;
+      }
+    } else {
+      // Apply repulsion to non-highlighted words
+      if (highlightedPositions.length > 0) {
+        const repelled = applyRepulsion(leftPercent, topPercent, highlightedPositions, isHighlighted);
+        finalLeft = repelled.leftPercent;
+        finalTop = repelled.topPercent;
+      }
+    }
+    
+    const scale = calculateScaleFromPosition(finalLeft, finalTop);
+    applyTransform(el, finalLeft, finalTop, rotation, scale);
   });
 }
 
