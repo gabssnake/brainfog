@@ -24,21 +24,18 @@ textarea { width: 250px; height: 120px; font-size: 0.8em; }
 }
 span {
   position: absolute;
-  padding: 6px 10px;
-  border-radius: 4px;
-  transition: all 1s ease;
+  left: 50%;
+  top: 50%;
+  transform-origin: center center;
+  padding: clamp(6px, 1.2vw, 8px) clamp(8px, 1.8vw, 12px);
+  border-radius: clamp(2px, 0.5vw, 4px);
+  transition: transform 1s ease;
   cursor: grab;
-  font-size: 0.75em;
+  font-size: clamp(0.75rem, 2.5vw, 1rem);
+  font-weight: bold;
   user-select: none;
-  transform: rotate(var(--rot, 0deg));
 }
 span.dragging { cursor: grabbing; transition: none; z-index: 10; }
-span.highlighted {
-  font-size: 2.5em;
-  padding: 12px 20px;
-  z-index: 5;
-  font-weight: 600;
-}
 .verb { background: #FF6B9D; color: white; }
 .noun { background: #00D4AA; color: white; }
 .adjective { background: #FFD93D; color: #333; }

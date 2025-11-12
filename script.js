@@ -3,12 +3,12 @@ let currentIdea = null; // { verb: string, noun: string, adjective: string, outc
 const container = document.getElementById("word-container");
 
 // Constants
-const CENTER_PERCENT_MIN = 30;
-const CENTER_PERCENT_MAX = 70;
-const EDGE_PERCENT = 25;
+const CENTER_PERCENT_MIN = 40; // Increased from 30 - push center words further from edges
+const CENTER_PERCENT_MAX = 60; // Decreased from 70 - make center area smaller/more airy
+const EDGE_PERCENT = 20; // Decreased from 25 - push edge words further out
 const ROTATION_RANGE = 8; // -4 to +4 degrees
-const CENTER_WORD_RATIO = 0.35;
-const MIN_CENTER_WORDS = 3;
+const CENTER_WORD_RATIO = 0.25; // Decreased from 0.35 - fewer words in center
+const MIN_CENTER_WORDS = 2; // Decreased from 3 - fewer words in center
 const HIGHLIGHT_POSITIONS = [25, 40, 60, 75]; // verb, adjective, noun, outcome
 const HIGHLIGHT_VERTICAL_RANGE = 6; // -3% to +3%
 const HIGHLIGHT_ROTATION_RANGE = 8; // -4 to +4 degrees
@@ -54,33 +54,69 @@ function saveToStorage() {
 }
 
 function randomPos(center = false) {
-  let left, top;
+  let leftPercent, topPercent;
   
   if (center) {
-    left = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN) + "%";
-    top = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN) + "%";
+    leftPercent = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN);
+    topPercent = CENTER_PERCENT_MIN + Math.random() * (CENTER_PERCENT_MAX - CENTER_PERCENT_MIN);
   } else {
     const edge = Math.random();
     if (edge < 0.25) {
-      left = Math.random() * 100 + "%";
-      top = Math.random() * EDGE_PERCENT + "%";
+      leftPercent = Math.random() * 100;
+      topPercent = Math.random() * EDGE_PERCENT;
     } else if (edge < 0.5) {
-      left = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT + "%";
-      top = Math.random() * 100 + "%";
+      leftPercent = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT;
+      topPercent = Math.random() * 100;
     } else if (edge < 0.75) {
-      left = Math.random() * 100 + "%";
-      top = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT + "%";
+      leftPercent = Math.random() * 100;
+      topPercent = (100 - EDGE_PERCENT) + Math.random() * EDGE_PERCENT;
     } else {
-      left = Math.random() * EDGE_PERCENT + "%";
-      top = Math.random() * 100 + "%";
+      leftPercent = Math.random() * EDGE_PERCENT;
+      topPercent = Math.random() * 100;
     }
   }
   
   return { 
-    left, 
-    top,
-    rot: (Math.random() - 0.5) * ROTATION_RANGE
+    leftPercent, 
+    topPercent,
+    rotation: (Math.random() - 0.5) * ROTATION_RANGE
   };
+}
+
+function calculateScaleFromPosition(leftPercent, topPercent) {
+  // Distance from center (0% = center, 50% = corner)
+  const centerX = 50;
+  const centerY = 50;
+  const distanceX = Math.abs(leftPercent - centerX);
+  const distanceY = Math.abs(topPercent - centerY);
+  const distance = Math.sqrt(distanceX ** 2 + distanceY ** 2);
+  
+  // Normalize to 0-1 (0 = center, ~70.7 = corner)
+  const maxDistance = Math.sqrt(50 ** 2 + 50 ** 2); // ~70.7
+  const normalizedDistance = distance / maxDistance; // 0 to 1
+  
+  // Map to scale: 2.6 at center (much bigger, roughly double), 0.6 at edges (bigger minimum)
+  const scale = 2.6 - (normalizedDistance * 2.0); // 2.6 to 0.6
+  
+  return scale;
+}
+
+function applyTransform(el, leftPercent, topPercent, rotation, scale) {
+  // Use viewport dimensions for accurate positioning across all screen sizes
+  const viewportWidth = window.innerWidth;
+  const viewportHeight = window.innerHeight;
+  
+  // Convert percentage to pixels relative to viewport center
+  const x = (viewportWidth * leftPercent / 100) - (viewportWidth / 2);
+  const y = (viewportHeight * topPercent / 100) - (viewportHeight / 2);
+  
+  // Single transform combining all operations
+  el.style.transform = `translate(${x}px, ${y}px) rotate(${rotation}deg) scale(${scale})`;
+  
+  // Store position percentages for resize handling
+  el.dataset.leftPercent = leftPercent;
+  el.dataset.topPercent = topPercent;
+  el.dataset.rotation = rotation;
 }
 
 function clearContainer() {
@@ -118,30 +154,13 @@ function renderWords() {
       
       const isCenter = centerWords[type].includes(w.trim());
       const pos = randomPos(isCenter);
+      const scale = calculateScaleFromPosition(pos.leftPercent, pos.topPercent);
       
-      el.style.left = pos.left;
-      el.style.top = pos.top;
-      el.style.setProperty("--rot", pos.rot + "deg");
+      applyTransform(el, pos.leftPercent, pos.topPercent, pos.rotation, scale);
       makeDraggable(el);
       container.appendChild(el);
     });
   });
-}
-
-function getRotation(el) {
-  const computedStyle = window.getComputedStyle(el);
-  const rotVar = computedStyle.getPropertyValue('--rot');
-  if (rotVar) {
-    return parseFloat(rotVar) || 0;
-  }
-  const transform = computedStyle.transform;
-  if (transform && transform !== 'none') {
-    const rotateMatch = transform.match(/rotate\(([^)]+)deg\)/);
-    if (rotateMatch) {
-      return parseFloat(rotateMatch[1]) || 0;
-    }
-  }
-  return 0;
 }
 
 function shuffleWords(highlightWords = null) {
@@ -152,45 +171,27 @@ function shuffleWords(highlightWords = null) {
     const word = el.dataset.word;
     const isHighlighted = highlightWords?.[wordType] === word;
     
+    let leftPercent, topPercent, rotation;
+    
     if (isHighlighted) {
-      el.classList.add('highlighted');
-      el.dataset.highlightType = wordType;
-      const currentRotation = getRotation(el);
-      el.dataset.currentRotation = currentRotation;
-      el.style.transform = `translate(0, 0) rotate(${currentRotation}deg)`;
+      // Highlighted words: use predefined center positions
+      const order = ['verb', 'adjective', 'noun', 'outcome'];
+      const index = order.indexOf(wordType);
+      leftPercent = HIGHLIGHT_POSITIONS[index] || 50;
+      topPercent = 50 + (Math.random() - 0.5) * HIGHLIGHT_VERTICAL_RANGE;
+      rotation = (Math.random() - 0.5) * HIGHLIGHT_ROTATION_RANGE;
     } else {
-      el.classList.remove('highlighted');
+      // Regular words: random position
       const isCenter = centerWords?.[wordType]?.includes(word);
       const pos = randomPos(isCenter);
-      el.style.left = pos.left;
-      el.style.top = pos.top;
-      el.style.setProperty("--rot", pos.rot + "deg");
+      leftPercent = pos.leftPercent;
+      topPercent = pos.topPercent;
+      rotation = pos.rotation;
     }
+    
+    const scale = calculateScaleFromPosition(leftPercent, topPercent);
+    applyTransform(el, leftPercent, topPercent, rotation, scale);
   });
-  
-  // Position highlighted words - set final position in next frame for smooth transition
-  if (highlightWords) {
-    requestAnimationFrame(() => {
-      const highlighted = document.querySelectorAll("#word-container span.highlighted");
-      if (highlighted.length === 4) {
-        const order = ['verb', 'adjective', 'noun', 'outcome'];
-        const sorted = Array.from(highlighted).sort((a, b) => {
-          return order.indexOf(a.dataset.highlightType) - order.indexOf(b.dataset.highlightType);
-        });
-        
-        sorted.forEach((el, index) => {
-          const leftPercent = HIGHLIGHT_POSITIONS[index] || 50;
-          const verticalOffset = (Math.random() - 0.5) * HIGHLIGHT_VERTICAL_RANGE;
-          const topPercent = 50 + verticalOffset;
-          const rotation = (Math.random() - 0.5) * HIGHLIGHT_ROTATION_RANGE;
-          
-          el.style.left = leftPercent + "%";
-          el.style.top = topPercent + "%";
-          el.style.transform = `translate(-50%, -50%) rotate(${rotation}deg)`;
-        });
-      }
-    });
-  }
 }
 
 function generateIdea() {
@@ -300,55 +301,43 @@ function triggerConfetti(centerOfScreen = false) {
 
 function makeDraggable(el) {
   let offsetX = 0, offsetY = 0, dragging = false;
+  let initialRotation = 0;
 
   el.addEventListener("pointerdown", e => {
     dragging = true;
     el.classList.add("dragging");
     
-    // Get the element's actual visual position (accounting for transforms)
     const rect = el.getBoundingClientRect();
-    const containerRect = container.getBoundingClientRect();
-    
-    // Calculate offset from mouse to element's top-left corner
     offsetX = e.clientX - rect.left;
     offsetY = e.clientY - rect.top;
     
-    // Get current position in pixels (convert from % if needed)
-    const computedStyle = window.getComputedStyle(el);
-    let currentLeft = computedStyle.left;
-    let currentTop = computedStyle.top;
-    
-    // Convert percentage to pixels if needed
-    if (currentLeft.includes('%')) {
-      const percent = parseFloat(currentLeft);
-      currentLeft = (containerRect.width * percent / 100) + 'px';
+    // Extract rotation from current transform (stored in dataset or extract from transform)
+    initialRotation = parseFloat(el.dataset.rotation) || 0;
+    if (initialRotation === 0) {
+      const transform = window.getComputedStyle(el).transform;
+      const rotateMatch = transform.match(/rotate\(([^)]+)deg\)/);
+      if (rotateMatch) {
+        initialRotation = parseFloat(rotateMatch[1]) || 0;
+      }
     }
-    if (currentTop.includes('%')) {
-      const percent = parseFloat(currentTop);
-      currentTop = (containerRect.height * percent / 100) + 'px';
-    }
-    
-    // Extract current rotation from transform or CSS variable
-    const currentRotation = getRotation(el);
-    
-    // Set position in pixels and preserve rotation
-    el.style.left = currentLeft;
-    el.style.top = currentTop;
-    el.style.transform = `rotate(${currentRotation}deg)`;
-    el.dataset.dragRotation = currentRotation; // Store for use during drag
     
     el.setPointerCapture(e.pointerId);
   });
 
   el.addEventListener("pointermove", e => {
     if (!dragging) return;
-    const containerRect = container.getBoundingClientRect();
-    const x = e.clientX - containerRect.left - offsetX;
-    const y = e.clientY - containerRect.top - offsetY;
-    const rotation = parseFloat(el.dataset.dragRotation) || 0;
-    el.style.left = Math.max(0, Math.min(x, containerRect.width - el.offsetWidth)) + "px";
-    el.style.top = Math.max(0, Math.min(y, containerRect.height - el.offsetHeight)) + "px";
-    el.style.transform = `rotate(${rotation}deg)`;
+    
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const x = e.clientX - offsetX;
+    const y = e.clientY - offsetY;
+    
+    // Convert to percentage and clamp to viewport bounds
+    const leftPercent = Math.max(0, Math.min(100, (x / viewportWidth) * 100));
+    const topPercent = Math.max(0, Math.min(100, (y / viewportHeight) * 100));
+    const scale = calculateScaleFromPosition(leftPercent, topPercent);
+    
+    applyTransform(el, leftPercent, topPercent, initialRotation, scale);
   });
 
   el.addEventListener("pointerup", e => {
@@ -401,6 +390,21 @@ function restoreDefaults() {
   saveToStorage();
   updateWords();
 }
+
+// Handle window resize - recalculate all transforms
+let resizeTimeout;
+window.addEventListener('resize', () => {
+  clearTimeout(resizeTimeout);
+  resizeTimeout = setTimeout(() => {
+    document.querySelectorAll("#word-container span").forEach(el => {
+      const leftPercent = parseFloat(el.dataset.leftPercent) || 50;
+      const topPercent = parseFloat(el.dataset.topPercent) || 50;
+      const rotation = parseFloat(el.dataset.rotation) || 0;
+      const scale = calculateScaleFromPosition(leftPercent, topPercent);
+      applyTransform(el, leftPercent, topPercent, rotation, scale);
+    });
+  }, 100);
+});
 
 // Initialize
 loadFromStorage();
