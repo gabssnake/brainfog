@@ -302,24 +302,33 @@ function triggerConfetti(centerOfScreen = false) {
 function makeDraggable(el) {
   let offsetX = 0, offsetY = 0, dragging = false;
   let initialRotation = 0;
+  let initialScale = 1;
+  let initialLeftPercent = 50;
+  let initialTopPercent = 50;
 
   el.addEventListener("pointerdown", e => {
     dragging = true;
     el.classList.add("dragging");
     
-    const rect = el.getBoundingClientRect();
-    offsetX = e.clientX - rect.left;
-    offsetY = e.clientY - rect.top;
-    
-    // Extract rotation from current transform (stored in dataset or extract from transform)
+    // Get current position from dataset (stored by applyTransform)
+    initialLeftPercent = parseFloat(el.dataset.leftPercent) || 50;
+    initialTopPercent = parseFloat(el.dataset.topPercent) || 50;
     initialRotation = parseFloat(el.dataset.rotation) || 0;
-    if (initialRotation === 0) {
-      const transform = window.getComputedStyle(el).transform;
-      const rotateMatch = transform.match(/rotate\(([^)]+)deg\)/);
-      if (rotateMatch) {
-        initialRotation = parseFloat(rotateMatch[1]) || 0;
-      }
-    }
+    
+    // Ensure transform is exactly correct before starting drag
+    // This prevents any mismatch between stored position and actual transform
+    initialScale = calculateScaleFromPosition(initialLeftPercent, initialTopPercent);
+    applyTransform(el, initialLeftPercent, initialTopPercent, initialRotation, initialScale);
+    
+    // Calculate element center from stored position (matches applyTransform calculation)
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+    const elementCenterX = (viewportWidth * initialLeftPercent / 100);
+    const elementCenterY = (viewportHeight * initialTopPercent / 100);
+    
+    // Calculate offset from mouse to element center
+    offsetX = e.clientX - elementCenterX;
+    offsetY = e.clientY - elementCenterY;
     
     el.setPointerCapture(e.pointerId);
   });
@@ -329,14 +338,18 @@ function makeDraggable(el) {
     
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const x = e.clientX - offsetX;
-    const y = e.clientY - offsetY;
+    
+    // Calculate new position based on mouse position minus offset
+    // This gives us the element center position
+    const elementCenterX = e.clientX - offsetX;
+    const elementCenterY = e.clientY - offsetY;
     
     // Convert to percentage and clamp to viewport bounds
-    const leftPercent = Math.max(0, Math.min(100, (x / viewportWidth) * 100));
-    const topPercent = Math.max(0, Math.min(100, (y / viewportHeight) * 100));
-    const scale = calculateScaleFromPosition(leftPercent, topPercent);
+    const leftPercent = Math.max(0, Math.min(100, (elementCenterX / viewportWidth) * 100));
+    const topPercent = Math.max(0, Math.min(100, (elementCenterY / viewportHeight) * 100));
     
+    // Recalculate scale based on new position (scale changes as word moves)
+    const scale = calculateScaleFromPosition(leftPercent, topPercent);
     applyTransform(el, leftPercent, topPercent, initialRotation, scale);
   });
 
